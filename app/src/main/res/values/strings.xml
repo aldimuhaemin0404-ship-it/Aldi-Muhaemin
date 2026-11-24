@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">KasHarian</string>
+    <string name="nav_home">Beranda</string>
+    <string name="nav_analytics">Analitik</string>
+    <string name="nav_pockets">Kantong</string>
+    <string name="nav_history">Riwayat</string>
+    <string name="action_add_income">Catat Pemasukan</string>
+    <string name="action_manage_categories">Kelola Kategori</string>
+    <string name="error_invalid_amount">Masukkan nominal pemasukan yang valid.</string>
+    <string name="error_empty_title">Judul pemasukan tidak boleh kosong.</string>
+    <string name="error_empty_category">Nama kategori tidak boleh kosong.</string>
+</resources>

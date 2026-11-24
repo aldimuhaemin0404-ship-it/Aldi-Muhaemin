@@ -1,0 +1,6 @@
+{
+  "name": "KasHarian",
+  "description": "Aplikasi pengelolaan dan penyimpanan pemasukan uang harian, pencatatan sumber pemasukan, serta target tabungan.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
