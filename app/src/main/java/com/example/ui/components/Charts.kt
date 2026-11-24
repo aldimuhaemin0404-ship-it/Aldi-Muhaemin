@@ -6,9 +6,12 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,14 +20,17 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
-import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -35,7 +41,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -45,6 +50,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -53,15 +60,18 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.local.CategoryEntity
 import com.example.domain.CategorySummary
 import com.example.domain.DailyBarPoint
 import com.example.domain.TrendLinePoint
@@ -71,8 +81,12 @@ import com.example.util.KasColorCatalog
 import com.example.util.KasIconCatalog
 import com.example.util.formatCompactRupiah
 import com.example.util.formatRupiah
+import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.hypot
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun DailyIncomeBarChartCard(
     points: List<DailyBarPoint>,
@@ -97,7 +111,6 @@ fun DailyIncomeBarChartCard(
     val selectedPoint = points.getOrNull(selectedIndex)
     val maxData = points.maxOfOrNull { it.totalAmount } ?: 0L
     val chartMax = maxOf(maxData, dailyTarget, 100_000L).let { raw ->
-        // Round up neatly for clean grid ticks
         val step = when {
             raw >= 5_000_000L -> 1_000_000L
             raw >= 1_000_000L -> 250_000L
@@ -107,8 +120,14 @@ fun DailyIncomeBarChartCard(
         ((raw + step - 1) / step) * step
     }
 
+    // Distinct active categories appearing in this 7-day window for the color legend
+    val activeWeekCategories = remember(points) {
+        points.flatMap { it.categorySlices }
+            .distinctBy { it.categoryId }
+            .map { Triple(it.categoryId, it.categoryName, it.colorHex) }
+    }
+
     val primaryColor = MaterialTheme.colorScheme.primary
-    val secondaryBarColor = primaryColor.copy(alpha = 0.38f)
     val zeroBarColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
     val targetLineColor = MaterialTheme.colorScheme.tertiary
     val gridColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
@@ -170,54 +189,92 @@ fun DailyIncomeBarChartCard(
                 Spacer(modifier = Modifier.height(10.dp))
                 Surface(
                     shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
                 ) {
-                    Row(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 14.dp, vertical = 10.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Column {
-                            Text(
-                                text = if (selectedPoint.isToday) {
-                                    "Hari Ini (${selectedPoint.dateLabel})"
-                                } else {
-                                    "${selectedPoint.dayShort}, ${selectedPoint.dateLabel}"
-                                },
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                            Text(
-                                text = formatRupiah(selectedPoint.totalAmount),
-                                style = MaterialTheme.typography.titleMedium.copy(
-                                    fontFamily = JetBrainsMonoFamily,
-                                    fontWeight = FontWeight.Bold
-                                ),
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                        if (dailyTarget > 0L) {
-                            val pct = ((selectedPoint.totalAmount.toFloat() / dailyTarget.toFloat()) * 100).toInt()
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = if (pct >= 100) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.surface
-                                }
-                            ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
                                 Text(
-                                    text = "$pct% target",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = if (pct >= 100) {
-                                        MaterialTheme.colorScheme.onPrimary
+                                    text = if (selectedPoint.isToday) {
+                                        "Hari Ini (${selectedPoint.dateLabel})"
                                     } else {
-                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                        "${selectedPoint.dayShort}, ${selectedPoint.dateLabel}"
                                     },
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
                                 )
+                                Text(
+                                    text = formatRupiah(selectedPoint.totalAmount),
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        fontFamily = JetBrainsMonoFamily,
+                                        fontWeight = FontWeight.Bold
+                                    ),
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            if (dailyTarget > 0L) {
+                                val pct = ((selectedPoint.totalAmount.toFloat() / dailyTarget.toFloat()) * 100).toInt()
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (pct >= 100) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.surface
+                                    }
+                                ) {
+                                    Text(
+                                        text = "$pct% target",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (pct >= 100) {
+                                            MaterialTheme.colorScheme.onPrimary
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        },
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        if (selectedPoint.categorySlices.isNotEmpty()) {
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                selectedPoint.categorySlices.forEach { slice ->
+                                    val sliceColor = KasColorCatalog.toColor(slice.colorHex)
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(8.dp)
+                                                    .clip(CircleShape)
+                                                    .background(sliceColor)
+                                            )
+                                            Text(
+                                                text = "${slice.categoryName}: ${formatCompactRupiah(slice.amount)}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -270,7 +327,6 @@ fun DailyIncomeBarChartCard(
                     val chartW = (size.width - leftPad - 8.dp.toPx()).coerceAtLeast(1f)
                     val chartH = (size.height - topPad - bottomPad).coerceAtLeast(1f)
 
-                    // Horizontal grid lines & Y-axis labels (0%, 50%, 100%)
                     val steps = 3
                     for (i in 0..steps) {
                         val ratio = i.toFloat() / steps.toFloat()
@@ -294,7 +350,6 @@ fun DailyIncomeBarChartCard(
                         )
                     }
 
-                    // Daily Target reference dashed line
                     if (dailyTarget in 1..chartMax) {
                         val targetY = topPad + chartH * (1f - dailyTarget.toFloat() / chartMax.toFloat())
                         drawLine(
@@ -306,10 +361,10 @@ fun DailyIncomeBarChartCard(
                         )
                     }
 
-                    // Bars
                     if (points.isNotEmpty()) {
                         val slotWidth = chartW / points.size
                         val barWidth = (slotWidth * 0.54f).coerceIn(14.dp.toPx(), 34.dp.toPx())
+                        val cornerPx = 8.dp.toPx()
 
                         points.forEachIndexed { index, point ->
                             val centerX = leftPad + slotWidth * index + slotWidth / 2f
@@ -318,28 +373,57 @@ fun DailyIncomeBarChartCard(
                             val barH = if (point.totalAmount == 0L) {
                                 4.dp.toPx()
                             } else {
-                                (chartH * ratio * animatedProgress).coerceAtLeast(8.dp.toPx())
+                                (chartH * ratio * animatedProgress).coerceAtLeast(10.dp.toPx())
                             }
                             val topY = topPad + chartH - barH
+                            val leftX = centerX - barWidth / 2f
 
-                            val brush = when {
-                                point.totalAmount == 0L -> Brush.verticalGradient(listOf(zeroBarColor, zeroBarColor))
-                                isSelected -> Brush.verticalGradient(
-                                    listOf(primaryColor, Color(0xFF16A36E))
+                            if (point.totalAmount == 0L || point.categorySlices.isEmpty()) {
+                                drawRoundRect(
+                                    color = if (point.totalAmount == 0L) zeroBarColor else primaryColor,
+                                    topLeft = Offset(leftX, topY),
+                                    size = Size(barWidth, barH),
+                                    cornerRadius = CornerRadius(cornerPx, cornerPx)
                                 )
-                                else -> Brush.verticalGradient(
-                                    listOf(secondaryBarColor, secondaryBarColor.copy(alpha = 0.25f))
-                                )
+                            } else {
+                                // Clip stacked category slices cleanly inside rounded bar silhouette
+                                val barClip = Path().apply {
+                                    addRoundRect(
+                                        RoundRect(
+                                            rect = Rect(leftX, topY, leftX + barWidth, topY + barH),
+                                            topLeft = CornerRadius(cornerPx, cornerPx),
+                                            topRight = CornerRadius(cornerPx, cornerPx),
+                                            bottomLeft = CornerRadius(4.dp.toPx(), 4.dp.toPx()),
+                                            bottomRight = CornerRadius(4.dp.toPx(), 4.dp.toPx())
+                                        )
+                                    )
+                                }
+                                val alpha = if (isSelected) 1f else 0.72f
+                                clipPath(barClip) {
+                                    var currentBottom = topY + barH
+                                    point.categorySlices.forEach { slice ->
+                                        val segRatio = slice.amount.toFloat() / point.totalAmount.toFloat()
+                                        val segH = (barH * segRatio).coerceAtLeast(2.dp.toPx())
+                                        val segTop = (currentBottom - segH).coerceAtLeast(topY)
+                                        drawRect(
+                                            color = KasColorCatalog.toColor(slice.colorHex).copy(alpha = alpha),
+                                            topLeft = Offset(leftX, segTop),
+                                            size = Size(barWidth, currentBottom - segTop)
+                                        )
+                                        currentBottom = segTop
+                                    }
+                                }
+                                if (isSelected) {
+                                    drawRoundRect(
+                                        color = activeLabelColor.copy(alpha = 0.55f),
+                                        topLeft = Offset(leftX - 1.5.dp.toPx(), topY - 1.5.dp.toPx()),
+                                        size = Size(barWidth + 3.dp.toPx(), barH + 3.dp.toPx()),
+                                        cornerRadius = CornerRadius(cornerPx + 1.dp.toPx(), cornerPx + 1.dp.toPx()),
+                                        style = Stroke(width = 1.5.dp.toPx())
+                                    )
+                                }
                             }
 
-                            drawRoundRect(
-                                brush = brush,
-                                topLeft = Offset(centerX - barWidth / 2f, topY),
-                                size = Size(barWidth, barH),
-                                cornerRadius = CornerRadius(8.dp.toPx(), 8.dp.toPx())
-                            )
-
-                            // Day label below bar
                             val dayMeasured = textMeasurer.measure(
                                 text = point.dayShort,
                                 style = dayTextStyle.copy(
@@ -359,8 +443,35 @@ fun DailyIncomeBarChartCard(
                 }
             }
 
+            if (activeWeekCategories.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(10.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    activeWeekCategories.forEach { (_, catName, hex) ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(KasColorCatalog.toColor(hex))
+                            )
+                            Text(
+                                text = catName,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+
             if (dailyTarget > 0L) {
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(8.dp))
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -386,7 +497,10 @@ fun DailyIncomeBarChartCard(
 fun IncomeTrendLineChartCard(
     points: List<TrendLinePoint>,
     trendPeriod: TrendPeriod,
+    categories: List<CategoryEntity> = emptyList(),
+    selectedCategoryId: Long? = null,
     onSelectPeriod: (TrendPeriod) -> Unit,
+    onSelectCategory: (Long?) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var selectedIndex by remember(points) {
@@ -394,6 +508,8 @@ fun IncomeTrendLineChartCard(
         mutableIntStateOf(if (lastNonZero >= 0) lastNonZero else (points.size - 1).coerceAtLeast(0))
     }
     val selectedPoint = points.getOrNull(selectedIndex)
+    val selectedCategory = categories.firstOrNull { it.id == selectedCategoryId }
+
     val maxData = points.maxOfOrNull { it.totalAmount } ?: 0L
     val chartMax = maxOf(maxData, 200_000L).let { raw ->
         val step = when {
@@ -404,7 +520,8 @@ fun IncomeTrendLineChartCard(
         ((raw + step - 1) / step) * step
     }
 
-    val lineColor = MaterialTheme.colorScheme.primary
+    val lineColor = selectedCategory?.let { KasColorCatalog.toColor(it.colorHex) }
+        ?: MaterialTheme.colorScheme.primary
     val accentNodeColor = MaterialTheme.colorScheme.tertiary
     val gridColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
     val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
@@ -438,10 +555,14 @@ fun IncomeTrendLineChartCard(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = if (trendPeriod == TrendPeriod.WEEKLY) {
-                            "Tren 8 minggu terakhir"
-                        } else {
-                            "Tren 6 bulan terakhir"
+                        text = buildString {
+                            append(
+                                if (trendPeriod == TrendPeriod.WEEKLY) "Tren 8 minggu terakhir"
+                                else "Tren 6 bulan terakhir"
+                            )
+                            if (selectedCategory != null) {
+                                append(" • ${selectedCategory.name}")
+                            }
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -464,11 +585,49 @@ fun IncomeTrendLineChartCard(
                 }
             }
 
+            if (categories.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = selectedCategoryId == null,
+                        onClick = { onSelectCategory(null) },
+                        label = { Text("Semua Kategori") },
+                        modifier = Modifier.testTag("trend_cat_all")
+                    )
+                    categories.forEach { cat ->
+                        val catColor = KasColorCatalog.toColor(cat.colorHex)
+                        val isSelected = selectedCategoryId == cat.id
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { onSelectCategory(if (isSelected) null else cat.id) },
+                            leadingIcon = {
+                                Box(
+                                    modifier = Modifier
+                                        .size(10.dp)
+                                        .clip(CircleShape)
+                                        .background(catColor)
+                                )
+                            },
+                            label = { Text(cat.name) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = catColor.copy(alpha = 0.18f)
+                            ),
+                            modifier = Modifier.testTag("trend_cat_${cat.id}")
+                        )
+                    }
+                }
+            }
+
             if (selectedPoint != null) {
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
                 Surface(
                     shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
+                    color = lineColor.copy(alpha = 0.12f)
                 ) {
                     Row(
                         modifier = Modifier
@@ -481,7 +640,7 @@ fun IncomeTrendLineChartCard(
                             Text(
                                 text = selectedPoint.detailLabel,
                                 style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
                                 text = formatRupiah(selectedPoint.totalAmount),
@@ -489,13 +648,13 @@ fun IncomeTrendLineChartCard(
                                     fontFamily = JetBrainsMonoFamily,
                                     fontWeight = FontWeight.Bold
                                 ),
-                                color = MaterialTheme.colorScheme.primary
+                                color = lineColor
                             )
                         }
                         Text(
                             text = "${selectedPoint.entryCount} catatan",
                             style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -551,7 +710,6 @@ fun IncomeTrendLineChartCard(
                     val chartW = (size.width - leftPad - rightPad).coerceAtLeast(1f)
                     val chartH = (size.height - topPad - bottomPad).coerceAtLeast(1f)
 
-                    // Grid lines & Y-axis labels
                     val steps = 3
                     for (i in 0..steps) {
                         val ratio = i.toFloat() / steps.toFloat()
@@ -583,7 +741,6 @@ fun IncomeTrendLineChartCard(
                             Offset(x, y)
                         }
 
-                        // Smooth Bezier Path + Gradient Fill
                         val linePath = Path().apply {
                             moveTo(coords.first().x, coords.first().y)
                             for (i in 0 until coords.size - 1) {
@@ -623,7 +780,6 @@ fun IncomeTrendLineChartCard(
                             )
                         )
 
-                        // Selected vertical guide
                         val selCoord = coords.getOrNull(selectedIndex)
                         if (selCoord != null) {
                             drawLine(
@@ -635,7 +791,6 @@ fun IncomeTrendLineChartCard(
                             )
                         }
 
-                        // Nodes & X-axis labels
                         coords.forEachIndexed { index, pt ->
                             val isSelected = index == selectedIndex
                             if (isSelected) {
@@ -693,7 +848,16 @@ fun CategoryDistributionCard(
     onManageCategories: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val activeSummaries = summaries.filter { it.totalAmount > 0L }
+    val activeSummaries = remember(summaries) { summaries.filter { it.totalAmount > 0L } }
+    var selectedCategoryIdx by remember(activeSummaries) { mutableIntStateOf(0) }
+    val selectedSummary = activeSummaries.getOrNull(selectedCategoryIdx)
+
+    val animSweep by animateFloatAsState(
+        targetValue = 1f,
+        animationSpec = tween(durationMillis = 600),
+        label = "donutAnim"
+    )
+
     Card(
         modifier = modifier
             .fillMaxWidth()
@@ -708,13 +872,13 @@ fun CategoryDistributionCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "Distribusi per Kategori",
                         style = MaterialTheme.typography.titleMedium
                     )
                     Text(
-                        text = "Komposisi sumber pemasukan Anda",
+                        text = "Warna kategori membantu membedakan sumber dana",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -724,12 +888,12 @@ fun CategoryDistributionCard(
                     modifier = Modifier.testTag("manage_categories_inline_button")
                 ) {
                     Icon(
-                        imageVector = Icons.Rounded.Tune,
+                        imageVector = Icons.Rounded.Palette,
                         contentDescription = null,
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Kelola")
+                    Text("Atur Warna")
                 }
             }
 
@@ -737,80 +901,165 @@ fun CategoryDistributionCard(
 
             if (activeSummaries.isEmpty()) {
                 Text(
-                    text = "Belum ada pemasukan tercatat. Tambahkan pemasukan untuk melihat komposisi kategori.",
+                    text = "Belum ada pemasukan tercatat. Tambahkan pemasukan untuk melihat diagram warna per kategori.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             } else {
-                // Proportional segmented horizontal bar
-                Row(
+                // Interactive Donut Chart with custom category colors
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(12.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
-                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                        .height(190.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    activeSummaries.forEach { summary ->
-                        Box(
-                            modifier = Modifier
-                                .weight(summary.percentage.coerceAtLeast(0.02f))
-                                .fillMaxSize()
-                                .background(KasColorCatalog.toColor(summary.category.colorHex))
-                        )
+                    Canvas(
+                        modifier = Modifier
+                            .size(176.dp)
+                            .pointerInput(activeSummaries) {
+                                detectTapGestures { offset ->
+                                    val cx = size.width / 2f
+                                    val cy = size.height / 2f
+                                    val dx = offset.x - cx
+                                    val dy = offset.y - cy
+                                    val dist = hypot(dx, dy)
+                                    if (dist in (size.width * 0.18f)..(size.width * 0.52f)) {
+                                        var angle = (atan2(dy, dx) * 180f / PI.toFloat()) + 90f
+                                        if (angle < 0f) angle += 360f
+                                        var start = 0f
+                                        activeSummaries.forEachIndexed { idx, item ->
+                                            val sweep = item.percentage * 360f
+                                            if (angle in start..(start + sweep)) {
+                                                selectedCategoryIdx = idx
+                                                return@detectTapGestures
+                                            }
+                                            start += sweep
+                                        }
+                                    }
+                                }
+                            }
+                    ) {
+                        val baseStroke = 26.dp.toPx()
+                        val selectedStroke = 32.dp.toPx()
+                        var startAngle = -90f
+                        val gapDegrees = if (activeSummaries.size > 1) 2.5f else 0f
+
+                        activeSummaries.forEachIndexed { index, summary ->
+                            val isSelected = index == selectedCategoryIdx
+                            val rawSweep = (summary.percentage * 360f * animSweep)
+                            val sweepAngle = (rawSweep - gapDegrees).coerceAtLeast(1.5f)
+                            val strokeW = if (isSelected) selectedStroke else baseStroke
+                            val inset = selectedStroke / 2f
+                            val arcSize = Size(size.width - inset * 2f, size.height - inset * 2f)
+
+                            drawArc(
+                                color = KasColorCatalog.toColor(summary.category.colorHex)
+                                    .copy(alpha = if (isSelected) 1f else 0.78f),
+                                startAngle = startAngle,
+                                sweepAngle = sweepAngle,
+                                useCenter = false,
+                                topLeft = Offset(inset, inset),
+                                size = arcSize,
+                                style = Stroke(width = strokeW, cap = StrokeCap.Butt)
+                            )
+                            startAngle += rawSweep
+                        }
+                    }
+
+                    if (selectedSummary != null) {
+                        val selColor = KasColorCatalog.toColor(selectedSummary.category.colorHex)
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.width(104.dp)
+                        ) {
+                            Text(
+                                text = "${(selectedSummary.percentage * 100).toInt()}%",
+                                style = MaterialTheme.typography.titleLarge.copy(
+                                    fontFamily = JetBrainsMonoFamily,
+                                    fontWeight = FontWeight.Bold
+                                ),
+                                color = selColor
+                            )
+                            Text(
+                                text = selectedSummary.category.name,
+                                style = MaterialTheme.typography.labelSmall,
+                                textAlign = TextAlign.Center,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = formatCompactRupiah(selectedSummary.totalAmount),
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontFamily = JetBrainsMonoFamily
+                                ),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    activeSummaries.forEach { summary ->
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    activeSummaries.forEachIndexed { index, summary ->
                         val catColor = KasColorCatalog.toColor(summary.category.colorHex)
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
+                        val isSelected = index == selectedCategoryIdx
+                        Surface(
+                            shape = MaterialTheme.shapes.medium,
+                            color = if (isSelected) catColor.copy(alpha = 0.1f) else Color.Transparent,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(MaterialTheme.shapes.medium)
+                                .clickable { selectedCategoryIdx = index }
                         ) {
-                            Box(
+                            Row(
                                 modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(catColor.copy(alpha = 0.14f)),
-                                contentAlignment = Alignment.Center
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(
-                                    imageVector = KasIconCatalog.resolveIcon(summary.category.iconKey),
-                                    contentDescription = summary.category.name,
-                                    tint = catColor,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = summary.category.name,
-                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = "${summary.count} transaksi",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            Column(horizontalAlignment = Alignment.End) {
-                                Text(
-                                    text = formatRupiah(summary.totalAmount),
-                                    style = MaterialTheme.typography.bodyMedium.copy(
-                                        fontFamily = JetBrainsMonoFamily,
-                                        fontWeight = FontWeight.SemiBold
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(catColor.copy(alpha = 0.16f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = KasIconCatalog.resolveIcon(summary.category.iconKey),
+                                        contentDescription = summary.category.name,
+                                        tint = catColor,
+                                        modifier = Modifier.size(18.dp)
                                     )
-                                )
-                                Text(
-                                    text = "${(summary.percentage * 100).toInt()}%",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = catColor
-                                )
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = summary.category.name,
+                                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = "${summary.count} transaksi",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(
+                                        text = formatRupiah(summary.totalAmount),
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            fontFamily = JetBrainsMonoFamily,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    )
+                                    Text(
+                                        text = "${(summary.percentage * 100).toInt()}%",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = catColor
+                                    )
+                                }
                             }
                         }
                     }

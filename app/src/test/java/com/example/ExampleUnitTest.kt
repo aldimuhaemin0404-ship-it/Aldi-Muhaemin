@@ -71,4 +71,10 @@ class ExampleUnitTest {
         assertEquals(3_000_000L, noIncome.remainingAmount)
         assertNull(noIncome.estimatedDaysRemaining)
     }
+
+    @Test
+    fun colorCatalog_formatsHexStringsCleanly() {
+        assertEquals("#0D6E4F", com.example.util.KasColorCatalog.toHexString(0xFF0D6E4FL))
+        assertEquals("#E11D48", com.example.util.KasColorCatalog.toHexString(0xFFE11D48L))
+    }
 }

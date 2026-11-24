@@ -74,12 +74,20 @@ data class SavingsGoalProgress(
     }
 }
 
+data class DailyBarCategorySlice(
+    val categoryId: Long,
+    val categoryName: String,
+    val colorHex: Long,
+    val amount: Long
+)
+
 data class DailyBarPoint(
     val dateMillis: Long,
     val dayShort: String,
     val dateLabel: String,
     val totalAmount: Long,
-    val isToday: Boolean
+    val isToday: Boolean,
+    val categorySlices: List<DailyBarCategorySlice> = emptyList()
 )
 
 data class TrendLinePoint(
@@ -128,6 +136,7 @@ data class KasUiState(
     val barChartRangeLabel: String = "",
     val dailyBarPoints: List<DailyBarPoint> = emptyList(),
     val trendPeriod: TrendPeriod = TrendPeriod.WEEKLY,
+    val selectedTrendCategoryId: Long? = null,
     val trendLinePoints: List<TrendLinePoint> = emptyList(),
     val categorySummaries: List<CategorySummary> = emptyList(),
     val searchQuery: String = "",

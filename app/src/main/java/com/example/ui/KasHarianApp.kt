@@ -232,6 +232,7 @@ fun KasHarianApp(viewModel: KasHarianViewModel) {
                                 state = state,
                                 onShiftBarWeek = viewModel::shiftBarWeek,
                                 onSelectTrendPeriod = viewModel::setTrendPeriod,
+                                onSelectTrendCategory = viewModel::setTrendCategory,
                                 onManageCategoriesClick = { showCategoryManager = true }
                             )
                         }

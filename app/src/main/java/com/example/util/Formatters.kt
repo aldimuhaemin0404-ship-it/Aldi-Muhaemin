@@ -150,11 +150,37 @@ object KasColorCatalog {
         0xFF0284C7, // Ocean Blue
         0xFF7C3AED, // Royal Violet
         0xFFD97706, // Warm Amber
-        0xFF059669, // Mint Green
         0xFFE11D48, // Coral Rose
         0xFF0891B2, // Teal Cyan
-        0xFF64748B  // Slate
+        0xFF4F46E5, // Deep Indigo
+        0xFFEA580C, // Sunset Orange
+        0xFF16A34A, // Leaf Green
+        0xFFDB2777, // Berry Pink
+        0xFF0F766E, // Pine Teal
+        0xFF64748B  // Cool Slate
     )
 
     fun toColor(hex: Long): Color = Color(hex)
+
+    fun toHexString(colorHex: Long): String {
+        val rgb = (colorHex and 0xFFFFFFL)
+        return String.format("#%06X", rgb)
+    }
+
+    fun hsvToColorLong(hue: Float, saturation: Float, value: Float): Long {
+        val argb = android.graphics.Color.HSVToColor(
+            floatArrayOf(
+                hue.coerceIn(0f, 360f),
+                saturation.coerceIn(0f, 1f),
+                value.coerceIn(0f, 1f)
+            )
+        )
+        return argb.toLong() and 0xFFFFFFFFL
+    }
+
+    fun colorLongToHsv(colorHex: Long): FloatArray {
+        val hsv = FloatArray(3)
+        android.graphics.Color.colorToHSV(colorHex.toInt(), hsv)
+        return hsv
+    }
 }

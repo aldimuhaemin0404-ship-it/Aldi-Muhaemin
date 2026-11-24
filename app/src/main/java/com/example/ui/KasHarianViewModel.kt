@@ -35,6 +35,7 @@ import java.util.Calendar
 private data class UiControlState(
     val weekOffset: Int = 0,
     val trendPeriod: TrendPeriod = TrendPeriod.WEEKLY,
+    val trendCategoryId: Long? = null,
     val searchQuery: String = "",
     val filterPeriod: HistoryFilterPeriod = HistoryFilterPeriod.ALL,
     val filterCategoryId: Long? = null,
@@ -176,25 +177,45 @@ class KasHarianViewModel(
         // 7-day bar chart window shifted by weekOffset (0 = last 7 days ending today)
         val windowEndDay = todayStart + (ctrl.weekOffset * 7L * DAY_MS)
         val windowStartDay = windowEndDay - 6L * DAY_MS
-        val daySums = incomes.groupBy { startOfDayMillis(it.dateMillis) }
-            .mapValues { (_, list) -> list.sumOf { it.amount } }
+        val incomesByDay = incomes.groupBy { startOfDayMillis(it.dateMillis) }
 
         val dailyBarPoints = (0..6).map { offset ->
             val dayMs = windowStartDay + offset * DAY_MS
+            val dayIncomes = incomesByDay[dayMs].orEmpty()
+            val slices = dayIncomes
+                .groupBy { it.categoryId }
+                .map { (catId, list) ->
+                    val cat = categoryMap[catId]
+                    com.example.domain.DailyBarCategorySlice(
+                        categoryId = catId,
+                        categoryName = cat?.name ?: "Lainnya",
+                        colorHex = cat?.colorHex ?: 0xFF0D6E4F,
+                        amount = list.sumOf { it.amount }
+                    )
+                }
+                .sortedByDescending { it.amount }
+
             DailyBarPoint(
                 dateMillis = dayMs,
                 dayShort = formatDayShort(dayMs),
                 dateLabel = formatDayMonth(dayMs),
-                totalAmount = daySums[dayMs] ?: 0L,
-                isToday = dayMs == todayStart
+                totalAmount = dayIncomes.sumOf { it.amount },
+                isToday = dayMs == todayStart,
+                categorySlices = slices
             )
         }
         val barRangeLabel = "${formatDayMonth(windowStartDay)} – ${formatDayMonth(windowEndDay)}"
 
-        // Trend line chart points (Weekly: 8 weeks, Monthly: 6 months)
+        // Trend line chart points (Weekly: 8 weeks, Monthly: 6 months), optionally filtered by category
+        val validTrendCatId = ctrl.trendCategoryId?.takeIf { categoryMap.containsKey(it) }
+        val trendIncomes = if (validTrendCatId == null) {
+            incomes
+        } else {
+            incomes.filter { it.categoryId == validTrendCatId }
+        }
         val trendLinePoints = when (ctrl.trendPeriod) {
-            TrendPeriod.WEEKLY -> buildWeeklyTrendPoints(incomes, todayStart)
-            TrendPeriod.MONTHLY -> buildMonthlyTrendPoints(incomes, now)
+            TrendPeriod.WEEKLY -> buildWeeklyTrendPoints(trendIncomes, todayStart)
+            TrendPeriod.MONTHLY -> buildMonthlyTrendPoints(trendIncomes, now)
         }
 
         // Category summaries across all recorded incomes
@@ -252,6 +273,7 @@ class KasHarianViewModel(
             barChartRangeLabel = barRangeLabel,
             dailyBarPoints = dailyBarPoints,
             trendPeriod = ctrl.trendPeriod,
+            selectedTrendCategoryId = validTrendCatId,
             trendLinePoints = trendLinePoints,
             categorySummaries = categorySummaries,
             searchQuery = ctrl.searchQuery,
@@ -315,6 +337,10 @@ class KasHarianViewModel(
 
     fun setTrendPeriod(period: TrendPeriod) {
         controlState.value = controlState.value.copy(trendPeriod = period)
+    }
+
+    fun setTrendCategory(categoryId: Long?) {
+        controlState.value = controlState.value.copy(trendCategoryId = categoryId)
     }
 
     fun setSearchQuery(query: String) {

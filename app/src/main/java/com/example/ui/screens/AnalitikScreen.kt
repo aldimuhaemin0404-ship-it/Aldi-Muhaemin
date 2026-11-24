@@ -40,6 +40,7 @@ fun AnalitikScreen(
     state: KasUiState,
     onShiftBarWeek: (Int) -> Unit,
     onSelectTrendPeriod: (TrendPeriod) -> Unit,
+    onSelectTrendCategory: (Long?) -> Unit,
     onManageCategoriesClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -121,7 +122,10 @@ fun AnalitikScreen(
             IncomeTrendLineChartCard(
                 points = state.trendLinePoints,
                 trendPeriod = state.trendPeriod,
-                onSelectPeriod = onSelectTrendPeriod
+                categories = state.categories,
+                selectedCategoryId = state.selectedTrendCategoryId,
+                onSelectPeriod = onSelectTrendPeriod,
+                onSelectCategory = onSelectTrendCategory
             )
         }
 

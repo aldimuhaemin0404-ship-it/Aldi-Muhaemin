@@ -1,5 +1,6 @@
 package com.example.ui.components
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -17,11 +18,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.ColorLens
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material3.AlertDialog
@@ -34,6 +38,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -41,6 +47,7 @@ import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,6 +55,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -55,6 +63,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.data.local.CategoryEntity
 import com.example.domain.CategorySummary
+import com.example.ui.theme.JetBrainsMonoFamily
 import com.example.util.KasColorCatalog
 import com.example.util.KasIconCatalog
 import com.example.util.formatRupiah
@@ -98,11 +107,12 @@ fun CategoryManagerSheet(
                         style = MaterialTheme.typography.titleLarge
                     )
                     Text(
-                        text = "Buat, ubah, atau hapus kategori sesuai sumber pemasukan Anda",
+                        text = "Buat, ubah warna & ikon, atau hapus kategori agar grafik mudah dibedakan",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+                Spacer(modifier = Modifier.width(8.dp))
                 FilledTonalButton(
                     onClick = { showCreateDialog = true },
                     modifier = Modifier.testTag("add_category_button")
@@ -139,9 +149,12 @@ fun CategoryManagerSheet(
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(40.dp)
+                                    .minimumInteractiveComponentSize()
+                                    .size(42.dp)
                                     .clip(CircleShape)
-                                    .background(catColor.copy(alpha = 0.16f)),
+                                    .background(catColor.copy(alpha = 0.16f))
+                                    .border(1.5.dp, catColor, CircleShape)
+                                    .clickable { editingCategory = category },
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
@@ -153,12 +166,23 @@ fun CategoryManagerSheet(
                             }
                             Spacer(modifier = Modifier.width(12.dp))
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = category.name,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = category.name,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .size(10.dp)
+                                            .clip(CircleShape)
+                                            .background(catColor)
+                                    )
+                                }
                                 val count = summary?.count ?: 0
                                 val total = summary?.totalAmount ?: 0L
                                 Text(
@@ -276,6 +300,17 @@ fun CategoryEditorDialog(
     var selectedColorHex by remember(initialCategory) {
         mutableLongStateOf(initialCategory?.colorHex ?: KasColorCatalog.swatches.first())
     }
+    val initialHsv = remember(initialCategory) {
+        KasColorCatalog.colorLongToHsv(initialCategory?.colorHex ?: KasColorCatalog.swatches.first())
+    }
+    var hue by remember(initialCategory) { mutableFloatStateOf(initialHsv[0]) }
+    var saturation by remember(initialCategory) { mutableFloatStateOf(initialHsv[1].coerceAtLeast(0.25f)) }
+    var brightness by remember(initialCategory) { mutableFloatStateOf(initialHsv[2].coerceAtLeast(0.35f)) }
+    var showCustomColorPicker by remember(initialCategory) {
+        mutableStateOf(
+            initialCategory != null && !KasColorCatalog.swatches.contains(initialCategory.colorHex)
+        )
+    }
     var showError by remember { mutableStateOf(false) }
 
     val previewColor = KasColorCatalog.toColor(selectedColorHex)
@@ -289,7 +324,10 @@ fun CategoryEditorDialog(
             )
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 // Live preview chip
                 Surface(
                     shape = RoundedCornerShape(14.dp),
@@ -301,6 +339,12 @@ fun CategoryEditorDialog(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        Box(
+                            modifier = Modifier
+                                .size(10.dp)
+                                .clip(CircleShape)
+                                .background(previewColor)
+                        )
                         Icon(
                             imageVector = KasIconCatalog.resolveIcon(selectedIconKey),
                             contentDescription = null,
@@ -347,7 +391,7 @@ fun CategoryEditorDialog(
                         Box(
                             modifier = Modifier
                                 .minimumInteractiveComponentSize()
-                                .size(44.dp)
+                                .size(42.dp)
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(
                                     if (isSelected) previewColor.copy(alpha = 0.2f)
@@ -372,21 +416,36 @@ fun CategoryEditorDialog(
                     }
                 }
 
-                Text(
-                    text = "Pilih Warna",
-                    style = MaterialTheme.typography.labelLarge
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Warna Kategori",
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                    Text(
+                        text = KasColorCatalog.toHexString(selectedColorHex),
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            fontFamily = JetBrainsMonoFamily,
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        color = previewColor
+                    )
+                }
+
                 FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     KasColorCatalog.swatches.forEach { hex ->
                         val swatchColor = KasColorCatalog.toColor(hex)
-                        val isSelected = hex == selectedColorHex
+                        val isSelected = hex == selectedColorHex && !showCustomColorPicker
                         Box(
                             modifier = Modifier
                                 .minimumInteractiveComponentSize()
-                                .size(36.dp)
+                                .size(34.dp)
                                 .clip(CircleShape)
                                 .background(swatchColor)
                                 .border(
@@ -394,7 +453,15 @@ fun CategoryEditorDialog(
                                     color = if (isSelected) MaterialTheme.colorScheme.onSurface else Color.Transparent,
                                     shape = CircleShape
                                 )
-                                .clickable { selectedColorHex = hex },
+                                .clickable {
+                                    selectedColorHex = hex
+                                    val hsv = KasColorCatalog.colorLongToHsv(hex)
+                                    hue = hsv[0]
+                                    saturation = hsv[1].coerceAtLeast(0.2f)
+                                    brightness = hsv[2].coerceAtLeast(0.25f)
+                                    showCustomColorPicker = false
+                                }
+                                .testTag("color_swatch_${KasColorCatalog.toHexString(hex)}"),
                             contentAlignment = Alignment.Center
                         ) {
                             if (isSelected) {
@@ -402,9 +469,139 @@ fun CategoryEditorDialog(
                                     imageVector = Icons.Rounded.Check,
                                     contentDescription = "Warna terpilih",
                                     tint = Color.White,
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
+                        }
+                    }
+
+                    // Custom color picker toggle button
+                    Surface(
+                        shape = CircleShape,
+                        color = if (showCustomColorPicker) {
+                            previewColor.copy(alpha = 0.2f)
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant
+                        },
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .height(34.dp)
+                            .clip(CircleShape)
+                            .border(
+                                width = if (showCustomColorPicker) 2.dp else 0.dp,
+                                color = if (showCustomColorPicker) previewColor else Color.Transparent,
+                                shape = CircleShape
+                            )
+                            .clickable { showCustomColorPicker = !showCustomColorPicker }
+                            .testTag("toggle_custom_color_picker")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.ColorLens,
+                                contentDescription = "Pilih warna kustom",
+                                tint = if (showCustomColorPicker) previewColor else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = "Kustom",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (showCustomColorPicker) previewColor else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                AnimatedVisibility(visible = showCustomColorPicker) {
+                    Surface(
+                        shape = MaterialTheme.shapes.medium,
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("custom_hsv_picker_panel")
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = "Spektrum Warna (Hue)",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(10.dp)
+                                    .clip(RoundedCornerShape(5.dp))
+                                    .background(
+                                        Brush.horizontalGradient(
+                                            listOf(
+                                                Color.Red,
+                                                Color.Yellow,
+                                                Color.Green,
+                                                Color.Cyan,
+                                                Color.Blue,
+                                                Color.Magenta,
+                                                Color.Red
+                                            )
+                                        )
+                                    )
+                            )
+                            Slider(
+                                value = hue,
+                                onValueChange = {
+                                    hue = it
+                                    selectedColorHex = KasColorCatalog.hsvToColorLong(hue, saturation, brightness)
+                                },
+                                valueRange = 0f..360f,
+                                colors = SliderDefaults.colors(
+                                    thumbColor = previewColor,
+                                    activeTrackColor = previewColor
+                                ),
+                                modifier = Modifier.testTag("custom_hue_slider")
+                            )
+
+                            Text(
+                                text = "Saturasi (${(saturation * 100).toInt()}%)",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Slider(
+                                value = saturation,
+                                onValueChange = {
+                                    saturation = it
+                                    selectedColorHex = KasColorCatalog.hsvToColorLong(hue, saturation, brightness)
+                                },
+                                valueRange = 0.2f..1f,
+                                colors = SliderDefaults.colors(
+                                    thumbColor = previewColor,
+                                    activeTrackColor = previewColor
+                                ),
+                                modifier = Modifier.testTag("custom_saturation_slider")
+                            )
+
+                            Text(
+                                text = "Kecerahan (${(brightness * 100).toInt()}%)",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Slider(
+                                value = brightness,
+                                onValueChange = {
+                                    brightness = it
+                                    selectedColorHex = KasColorCatalog.hsvToColorLong(hue, saturation, brightness)
+                                },
+                                valueRange = 0.3f..0.95f,
+                                colors = SliderDefaults.colors(
+                                    thumbColor = previewColor,
+                                    activeTrackColor = previewColor
+                                ),
+                                modifier = Modifier.testTag("custom_brightness_slider")
+                            )
                         }
                     }
                 }
